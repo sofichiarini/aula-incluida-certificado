@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tu certificado · Aula Incluida</title>
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;700;900&family=Great+Vibes&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+  :root{--teal:#0b858e;--teal-osc:#066974;--tinta:#12343f;--gris:#4a5d63;--verde:#168a45;--fondo:#f8fcfc}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--fondo);font-family:Montserrat,Arial,sans-serif;color:var(--tinta)}
+  .wrap{max-width:720px;margin:0 auto;padding:32px 16px 48px}
+  .marca{font-weight:900;letter-spacing:.12em;color:var(--teal);font-size:14px}
+  h1{font-size:30px;line-height:1.15;margin:12px 0 8px;font-weight:900}
+  p{color:var(--gris);line-height:1.5;margin:0 0 20px}
+  form{background:#fff;border:1px solid #dcecee;border-radius:14px;padding:20px}
+  label{display:block;font-weight:700;font-size:15px;margin:0 0 6px}
+  .ayuda{font-size:13px;color:var(--gris);font-weight:500;margin:-2px 0 8px}
+  input{width:100%;font:inherit;font-size:17px;padding:12px 14px;border:1.5px solid #c7dfe2;border-radius:10px;margin-bottom:16px}
+  input:focus{outline:none;border-color:var(--teal)}
+  button{width:100%;background:var(--verde);color:#fff;border:0;border-radius:12px;padding:16px;font:inherit;font-weight:900;font-size:17px;letter-spacing:.03em;cursor:pointer}
+  button:disabled{opacity:.6;cursor:wait}
+  .err{color:#b42318;font-size:14px;font-weight:700;margin:-6px 0 12px;min-height:1em}
+  .vista{margin-top:24px}
+  .vista img{width:100%;border-radius:8px;box-shadow:0 8px 24px rgba(10,46,54,.15);display:none}
+  .ok{display:none;margin-top:14px;font-weight:700;color:var(--verde)}
+  footer{margin-top:28px;font-size:13px;color:var(--gris)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="marca">AULA INCLUIDA · ECUADOR</div>
+  <h1>Descarga tu certificado de 40 horas en Inclusión Educativa</h1>
+  <p>Escribe tu nombre tal como quieres que aparezca y tu número de cédula. El certificado se genera al instante en PDF, listo para tu carpeta docente.</p>
+
+  <form id="f" autocomplete="on" novalidate>
+    <label for="nombre">Nombres y apellidos</label>
+    <div class="ayuda">Ejemplo: María Fernanda Ortiz Paredes</div>
+    <input id="nombre" name="nombre" maxlength="60" required autocomplete="name">
+    <label for="cedula">Número de cédula</label>
+    <div class="ayuda">10 dígitos</div>
+    <input id="cedula" name="cedula" inputmode="numeric" maxlength="10" required>
+    <div class="err" id="err"></div>
+    <button id="btn" type="submit">GENERAR MI CERTIFICADO</button>
+    <div class="ok" id="ok">Listo: tu certificado se descargó. Si no lo ves, revisa la carpeta «Descargas».</div>
+  </form>
+
+  <div class="vista"><img id="vista" alt="Vista previa de tu certificado"></div>
+
+  <footer>¿Algún problema? Escríbenos a pulsoecommerce3@gmail.com y te lo enviamos.</footer>
+</div>
+
+<canvas id="c" width="3508" height="2480" style="display:none"></canvas>
+
+<script>
+const MESES=["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
+
+function titulo(s){
+  return s.trim().replace(/\s+/g," ").toLowerCase()
+    .replace(/(^|[\s'-])(\p{L})/gu,(m,a,b)=>a+b.toUpperCase());
+}
+// Validación de cédula ecuatoriana (módulo 10).
+function cedulaValida(c){
+  if(!/^\d{10}$/.test(c))return false;
+  const prov=+c.slice(0,2); if(prov<1||(prov>24&&prov!==30))return false;
+  if(+c[2]>5)return false;
+  let s=0; for(let i=0;i<9;i++){let d=+c[i]*(i%2?1:2); if(d>9)d-=9; s+=d;}
+  return (10-s%10)%10===+c[9];
+}
+function codigo(nombre,cedula,fecha){
+  let h=2166136261; const t=nombre+"|"+cedula+"|"+fecha;
+  for(const ch of t){h^=ch.codePointAt(0); h=Math.imul(h,16777619)>>>0;}
+  return "AI-EC-"+h.toString(36).toUpperCase().padStart(7,"0").slice(-7);
+}
+function ajustar(ctx,txt,maxW,size,peso,familia){
+  let s=size; do{ctx.font=`${peso} ${s}px ${familia}`; s-=4;}while(ctx.measureText(txt).width>maxW&&s>40); return s+4;
+}
+function rrect(ctx,x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+
+function dibujar(nombre,cedula){
+  const c=document.getElementById("c"),ctx=c.getContext("2d"),W=c.width,H=c.height;
+  const hoy=new Date(), fechaTxt=`${hoy.getDate()} de ${MESES[hoy.getMonth()]} de ${hoy.getFullYear()}`;
+  const fechaISO=hoy.toISOString().slice(0,10), cod=codigo(nombre,cedula,fechaISO);
+
+  ctx.fillStyle="#ffffff"; ctx.fillRect(0,0,W,H);
+  // Fondo suave y ondas verde agua
+  ctx.fillStyle="#eef8f7";
+  ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(W,0);ctx.lineTo(W,380);ctx.bezierCurveTo(W*.7,520,W*.3,260,0,420);ctx.closePath();ctx.fill();
+  ctx.beginPath();ctx.moveTo(0,H);ctx.lineTo(W,H);ctx.lineTo(W,H-360);ctx.bezierCurveTo(W*.65,H-200,W*.35,H-460,0,H-300);ctx.closePath();ctx.fill();
+  // Marcos
+  ctx.strokeStyle="#0b858e"; ctx.lineWidth=34; ctx.strokeRect(90,90,W-180,H-180);
+  ctx.lineWidth=6; ctx.strokeRect(160,160,W-320,H-320);
+  // Esquinas
+  ctx.fillStyle="#0b858e";
+  [[160,160],[W-160,160],[160,H-160],[W-160,H-160]].forEach(([x,y])=>{ctx.beginPath();ctx.arc(x,y,26,0,Math.PI*2);ctx.fill();});
+
+  ctx.textAlign="center"; ctx.textBaseline="alphabetic";
+  ctx.fillStyle="#0b858e"; ctx.font="900 54px Montserrat"; ctx.fillText("A U L A   I N C L U I D A", W/2, 400);
+  ctx.fillStyle="#066974"; ctx.font="900 230px Montserrat"; ctx.fillText("CERTIFICADO", W/2, 640);
+  ctx.fillStyle="#12343f"; ctx.font="700 78px Montserrat"; ctx.fillText("40 horas en Inclusión Educativa", W/2, 780);
+  ctx.strokeStyle="#7fcfc8"; ctx.lineWidth=6; ctx.beginPath();ctx.moveTo(W/2-700,850);ctx.lineTo(W/2+700,850);ctx.stroke();
+
+  ctx.fillStyle="#4a5d63"; ctx.font="500 62px Montserrat"; ctx.fillText("Se otorga el presente certificado a", W/2, 990);
+  ajustar(ctx,nombre,W-900,210,"400","'Great Vibes'");
+  ctx.fillStyle="#12343f"; ctx.fillText(nombre, W/2, 1230);
+  ctx.strokeStyle="#12343f"; ctx.lineWidth=4; ctx.beginPath();ctx.moveTo(W/2-1100,1280);ctx.lineTo(W/2+1100,1280);ctx.stroke();
+  ctx.fillStyle="#4a5d63"; ctx.font="700 52px Montserrat"; ctx.fillText("C.I. "+cedula, W/2, 1360);
+
+  ctx.fillStyle="#12343f"; ctx.font="500 56px Montserrat";
+  ["por su formación autónoma de 40 horas en Inclusión Educativa con el programa",
+   "«+500 Actividades para Autismo y TDAH»: adaptaciones curriculares (DIAC),",
+   "plan de 36 semanas y estrategias para estudiantes con NEE en el aula."]
+   .forEach((l,i)=>ctx.fillText(l, W/2, 1500+i*84));
+
+  // Firma
+  const fx=900, fy=2060;
+  ctx.fillStyle="#12343f"; ctx.font="400 120px 'Great Vibes'"; ctx.fillText("Verónica Andrade", fx, fy-40);
+  ctx.strokeStyle="#12343f"; ctx.lineWidth=4; ctx.beginPath();ctx.moveTo(fx-430,fy);ctx.lineTo(fx+430,fy);ctx.stroke();
+  ctx.font="700 48px Montserrat"; ctx.fillText("Lcda. Verónica Andrade", fx, fy+70);
+  ctx.fillStyle="#4a5d63"; ctx.font="500 42px Montserrat"; ctx.fillText("Directora académica · Aula Incluida", fx, fy+130);
+
+  // Fecha y código
+  const dx=W-900;
+  ctx.fillStyle="#12343f"; ctx.font="700 64px Montserrat"; ctx.fillText(fechaTxt, dx, fy-40);
+  ctx.strokeStyle="#12343f"; ctx.beginPath();ctx.moveTo(dx-430,fy);ctx.lineTo(dx+430,fy);ctx.stroke();
+  ctx.font="700 48px Montserrat"; ctx.fillText("Fecha de emisión", dx, fy+70);
+  ctx.fillStyle="#4a5d63"; ctx.font="500 42px Montserrat"; ctx.fillText("Código: "+cod, dx, fy+130);
+
+  // Sello
+  const sx=W/2, sy=2010, R=190;
+  ctx.fillStyle="#0b858e";
+  ctx.beginPath();ctx.moveTo(sx-110,sy+120);ctx.lineTo(sx-170,sy+275);ctx.lineTo(sx-90,sy+240);ctx.lineTo(sx-40,sy+295);ctx.lineTo(sx,sy+150);ctx.closePath();ctx.fill();
+  ctx.beginPath();ctx.moveTo(sx+110,sy+120);ctx.lineTo(sx+170,sy+275);ctx.lineTo(sx+90,sy+240);ctx.lineTo(sx+40,sy+295);ctx.lineTo(sx,sy+150);ctx.closePath();ctx.fill();
+  ctx.fillStyle="#d4a63a"; ctx.beginPath();
+  for(let i=0;i<48;i++){const a=i*Math.PI/24, r=i%2?R:R-18; ctx.lineTo(sx+r*Math.cos(a), sy+r*Math.sin(a));}
+  ctx.closePath(); ctx.fill();
+  const g=ctx.createRadialGradient(sx-40,sy-50,20,sx,sy,R-30); g.addColorStop(0,"#f6dc8a"); g.addColorStop(1,"#c9962c");
+  ctx.fillStyle=g; ctx.beginPath(); ctx.arc(sx,sy,R-32,0,Math.PI*2); ctx.fill();
+  ctx.strokeStyle="#a8791f"; ctx.lineWidth=5; ctx.beginPath(); ctx.arc(sx,sy,R-52,0,Math.PI*2); ctx.stroke();
+  ctx.fillStyle="#6b4b10"; ctx.font="900 92px Montserrat"; ctx.fillText("40", sx, sy+10);
+  ctx.font="900 34px Montserrat"; ctx.fillText("HORAS", sx, sy+60);
+
+  return {fechaISO,cod};
+}
+
+document.getElementById("cedula").addEventListener("input",e=>{e.target.value=e.target.value.replace(/\D/g,"").slice(0,10);});
+
+document.getElementById("f").addEventListener("submit",async e=>{
+  e.preventDefault();
+  const err=document.getElementById("err"), btn=document.getElementById("btn");
+  const nombre=titulo(document.getElementById("nombre").value), cedula=document.getElementById("cedula").value.trim();
+  err.textContent="";
+  if(nombre.split(" ").length<2||nombre.length<5){err.textContent="Escribe tu nombre y al menos un apellido.";return;}
+  if(!cedulaValida(cedula)){err.textContent="Revisa el número de cédula: debe tener 10 dígitos válidos.";return;}
+  btn.disabled=true; btn.textContent="GENERANDO…";
+  try{
+    await Promise.all([document.fonts.load("900 100px Montserrat"),document.fonts.load("700 100px Montserrat"),document.fonts.load("500 100px Montserrat"),document.fonts.load("400 100px 'Great Vibes'")]);
+    const {cod}=dibujar(nombre,cedula);
+    const c=document.getElementById("c"), img=c.toDataURL("image/jpeg",0.92);
+    const pdf=new window.jspdf.jsPDF({orientation:"landscape",unit:"mm",format:"a4"});
+    pdf.setProperties({title:"Certificado 40 horas - "+nombre, author:"Aula Incluida"});
+    pdf.addImage(img,"JPEG",0,0,297,210);
+    pdf.save("Certificado Aula Incluida - "+nombre+".pdf");
+    const v=document.getElementById("vista"); v.src=img; v.style.display="block";
+    document.getElementById("ok").style.display="block";
+  }catch(x){ err.textContent="No se pudo generar. Prueba otra vez o escríbenos."; console.error(x); }
+  btn.disabled=false; btn.textContent="GENERAR MI CERTIFICADO";
+});
+</script>
+</body>
+</html>
